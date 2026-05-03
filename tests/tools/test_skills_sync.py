@@ -1,5 +1,6 @@
 """Tests for tools/skills_sync.py — manifest-based skill seeding and updating."""
 
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -732,3 +733,116 @@ class TestResetBundledSkill:
             post_manifest = _read_manifest()
             assert "google-workspace" in post_manifest
         assert (skills_dir / "productivity" / "google-workspace" / "SKILL.md").exists()
+
+
+class TestDisableBundledSkills:
+    """HERMES_DISABLE_BUNDLED_SKILLS lets embedders suppress the auto-seed entirely."""
+
+    def _setup_bundled(self, tmp_path):
+        bundled = tmp_path / "bundled_skills"
+        (bundled / "category" / "new-skill").mkdir(parents=True)
+        (bundled / "category" / "new-skill" / "SKILL.md").write_text("# New")
+        (bundled / "old-skill").mkdir()
+        (bundled / "old-skill" / "SKILL.md").write_text("# Old")
+        return bundled
+
+    def _patches(self, bundled, skills_dir, manifest_file):
+        from contextlib import ExitStack
+        stack = ExitStack()
+        stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
+        stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
+        stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
+        return stack
+
+    def test_disabled_clean_state_no_manifest_no_copies(self, tmp_path, monkeypatch):
+        """With env var set and a clean state, sync must not write the manifest or copy skills."""
+        bundled = self._setup_bundled(tmp_path)
+        skills_dir = tmp_path / "user_skills"
+        manifest_file = skills_dir / ".bundled_manifest"
+        monkeypatch.setenv("HERMES_DISABLE_BUNDLED_SKILLS", "1")
+
+        with self._patches(bundled, skills_dir, manifest_file):
+            result = sync_skills(quiet=True)
+
+        assert result == {
+            "copied": [], "updated": [], "skipped": 0,
+            "user_modified": [], "cleaned": [], "total_bundled": 0,
+        }
+        assert not manifest_file.exists()
+        assert not (skills_dir / "category" / "new-skill").exists()
+        assert not (skills_dir / "old-skill").exists()
+
+    def test_disabled_preserves_existing_manifest_and_user_skills(self, tmp_path, monkeypatch):
+        """Pre-existing manifest and user-modified skill dirs must be left untouched."""
+        bundled = self._setup_bundled(tmp_path)
+        skills_dir = tmp_path / "user_skills"
+        manifest_file = skills_dir / ".bundled_manifest"
+
+        # Pre-populate manifest and a user-modified skill dir.
+        skills_dir.mkdir(parents=True)
+        original_manifest = "old-skill:DEADBEEF000000000000000000000000\n"
+        manifest_file.write_text(original_manifest)
+        user_skill = skills_dir / "old-skill"
+        user_skill.mkdir(parents=True)
+        (user_skill / "SKILL.md").write_text("# user-edited")
+        (user_skill / "extra.py").write_text("print('mine')\n")
+
+        monkeypatch.setenv("HERMES_DISABLE_BUNDLED_SKILLS", "1")
+        with self._patches(bundled, skills_dir, manifest_file):
+            result = sync_skills(quiet=True)
+
+        # Result is the empty shape — no work happened.
+        assert result["copied"] == [] and result["updated"] == []
+        assert result["cleaned"] == [] and result["user_modified"] == []
+
+        # Manifest unchanged (no rewrite, no entry cleanup even though
+        # "old-skill" no longer matches its origin hash).
+        assert manifest_file.read_text() == original_manifest
+
+        # User skill dir untouched.
+        assert (user_skill / "SKILL.md").read_text() == "# user-edited"
+        assert (user_skill / "extra.py").exists()
+
+        # New bundled skill was NOT seeded.
+        assert not (skills_dir / "category" / "new-skill").exists()
+
+    @pytest.mark.parametrize("truthy", ["1", "true", "YES", "on"])
+    def test_truthy_spellings_disable_sync(self, tmp_path, monkeypatch, truthy):
+        bundled = self._setup_bundled(tmp_path)
+        skills_dir = tmp_path / "user_skills"
+        manifest_file = skills_dir / ".bundled_manifest"
+        monkeypatch.setenv("HERMES_DISABLE_BUNDLED_SKILLS", truthy)
+
+        with self._patches(bundled, skills_dir, manifest_file):
+            result = sync_skills(quiet=True)
+
+        assert result["total_bundled"] == 0
+        assert not manifest_file.exists()
+        assert not (skills_dir / "category" / "new-skill").exists()
+
+    @pytest.mark.parametrize("falsy", ["0", "", "false", "no", "off"])
+    def test_falsy_value_does_not_disable(self, tmp_path, monkeypatch, falsy):
+        bundled = self._setup_bundled(tmp_path)
+        skills_dir = tmp_path / "user_skills"
+        manifest_file = skills_dir / ".bundled_manifest"
+        monkeypatch.setenv("HERMES_DISABLE_BUNDLED_SKILLS", falsy)
+
+        with self._patches(bundled, skills_dir, manifest_file):
+            result = sync_skills(quiet=True)
+
+        # Sync ran normally — both bundled skills got seeded.
+        assert result["total_bundled"] == 2
+        assert set(result["copied"]) == {"new-skill", "old-skill"}
+        assert manifest_file.exists()
+
+    def test_unset_env_does_not_disable(self, tmp_path, monkeypatch):
+        bundled = self._setup_bundled(tmp_path)
+        skills_dir = tmp_path / "user_skills"
+        manifest_file = skills_dir / ".bundled_manifest"
+        monkeypatch.delenv("HERMES_DISABLE_BUNDLED_SKILLS", raising=False)
+
+        with self._patches(bundled, skills_dir, manifest_file):
+            result = sync_skills(quiet=True)
+
+        assert result["total_bundled"] == 2
+        assert manifest_file.exists()

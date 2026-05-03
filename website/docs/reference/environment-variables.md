@@ -450,6 +450,7 @@ Advanced per-platform knobs for throttling the outbound message batcher. Most us
 | `HERMES_DISABLE_FILE_STATE_GUARD` | Set to `1` to turn off the "file changed since you read it" guard on `patch`/`write_file`. |
 | `HERMES_CORE_TOOLS` | Comma-separated override for the canonical core tool list (advanced; rarely needed). |
 | `HERMES_BUNDLED_SKILLS` | Comma-separated override for the list of bundled skills loaded at startup. |
+| `HERMES_DISABLE_BUNDLED_SKILLS` | Set to `1`, `true`, `yes`, or `on` to skip auto-seeding the bundled skills into `~/.hermes/skills/` on launch. The user dir, `.bundled_manifest`, and `DESCRIPTION.md` files are left untouched. Intended for embedders that ship a curated per-agent skill set. |
 | `HERMES_OPTIONAL_SKILLS` | Comma-separated list of optional-skill names to auto-install on first run. |
 | `HERMES_DEBUG_INTERRUPT` | Set to `1` to log detailed interrupt/cancel tracing to `agent.log`. |
 | `HERMES_DUMP_REQUESTS` | Dump API request payloads to log files (`true`/`false`) |

@@ -19,6 +19,15 @@ Update logic:
   - REMOVED from bundled (in manifest, gone from repo): cleaned from manifest.
 
 The manifest lives at ~/.hermes/skills/.bundled_manifest.
+
+Environment variables:
+  HERMES_BUNDLED_SKILLS:         Path override for the bundled skills directory
+                                 (set by the Nix wrapper and Homebrew formula).
+  HERMES_DISABLE_BUNDLED_SKILLS: When set to "1"/"true"/"yes"/"on" (case-
+                                 insensitive), sync_skills() early-exits
+                                 without touching the user dir or manifest.
+                                 Intended for embedders shipping a curated
+                                 per-agent skill set.
 """
 
 import hashlib
@@ -48,6 +57,19 @@ def _get_bundled_dir() -> Path:
     if env_override:
         return Path(env_override)
     return Path(__file__).parent.parent / "skills"
+
+
+def _bundled_skills_disabled() -> bool:
+    """Return True when HERMES_DISABLE_BUNDLED_SKILLS is set to a truthy value.
+
+    Truthy values (case-insensitive): "1", "true", "yes", "on". Anything else
+    — including "0", empty string, or unset — leaves auto-seeding enabled.
+    Embedders that ship a curated skill set per agent set this to suppress
+    the default ~89-skill seed without needing to rm -rf user dirs after launch.
+    """
+    return os.getenv("HERMES_DISABLE_BUNDLED_SKILLS", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 
 def _read_manifest() -> Dict[str, str]:
@@ -183,6 +205,14 @@ def sync_skills(quiet: bool = False) -> dict:
                         user_modified (list), cleaned (list), total_bundled (int)
     """
     bundled_dir = _get_bundled_dir()
+    if _bundled_skills_disabled():
+        # Embedder opt-out: do not touch the user dir, do not read or rewrite
+        # the manifest, do not copy DESCRIPTION.md files. Returns the same
+        # empty-result shape as the missing-bundled-dir branch below.
+        return {
+            "copied": [], "updated": [], "skipped": 0,
+            "user_modified": [], "cleaned": [], "total_bundled": 0,
+        }
     if not bundled_dir.exists():
         return {
             "copied": [], "updated": [], "skipped": 0,

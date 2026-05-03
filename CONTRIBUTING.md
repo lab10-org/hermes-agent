@@ -454,6 +454,10 @@ Gateway and messaging sessions never collect secrets in-band; they instruct the 
 
 See `skills/gifs/gif-search/` and `skills/email/himalaya/` for examples.
 
+### Disabling the bundled-skill auto-seed (embedders)
+
+Hermes copies the contents of `skills/` into `~/.hermes/skills/` on every CLI launch via `tools/skills_sync.py`. Embedders that ship a curated per-agent skill set can suppress this by setting `HERMES_DISABLE_BUNDLED_SKILLS` to `1`, `true`, `yes`, or `on` (case-insensitive). When set, `sync_skills()` early-exits without touching the user dir, `.bundled_manifest`, or category `DESCRIPTION.md` files. Pair it with `HERMES_BUNDLED_SKILLS` only if you also want to override the source path; the disable flag works on its own. Pre-populate `~/.hermes/skills/` yourself (e.g. `cp -r` from a snapshot) before launching the CLI.
+
 ### Skill guidelines
 
 - **No external dependencies unless absolutely necessary.** Prefer stdlib Python, curl, and existing Hermes tools (`web_extract`, `terminal`, `read_file`).
